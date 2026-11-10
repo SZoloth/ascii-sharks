@@ -54,9 +54,11 @@ ocean.setTheme({ accents: ["#ff6a45"] }); // dark page: leave `paper` unset
 
 Sharks: `classic`, `hammerhead`, `greathammer`, `tiger`, `zebra`, `mako`, `thresher`, `nurse`.
 
-Not sharks: `orca`, `manta`, `whaleshark`. The manta and the whale shark are filter feeders, so they cruise through the schools and never hunt.
+Not sharks: `orca`, `manta`, `whaleshark`, `koi`, `turtle`, `seal`, `jelly`.
 
-Try them in the demo with `?sharks=manta,orca,whaleshark`.
+The manta, whale shark, koi, turtle and jellyfish are gentle: they cruise through the schools and never hunt. Each koi gets its own pattern: white and orange, white with orange and black, or solid gold. The turtle's shell never bends, and the jellyfish pulses and trails tentacles.
+
+Try them in the demo with `?sharks=manta,orca,whaleshark` or `?sharks=koi,koi,koi,koi,turtle,jelly`.
 
 ## Options
 

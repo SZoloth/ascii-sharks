@@ -20,10 +20,13 @@ export const SHARK_NODES = 20;
 
 export type SharkKind =
   | "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse"
-  | "orca" | "manta" | "whaleshark";
+  | "orca" | "manta" | "whaleshark" | "koi" | "turtle" | "seal" | "jelly";
 
 /** Filter feeders: they cruise through the schools and never hunt. */
-const GENTLE: ReadonlySet<SharkKind> = new Set<SharkKind>(["manta", "whaleshark"]);
+const GENTLE: ReadonlySet<SharkKind> = new Set<SharkKind>(["manta", "whaleshark", "koi", "turtle", "jelly"]);
+
+/** How fast each kind cruises, relative to a shark. */
+const PACE: Partial<Record<SharkKind, number>> = { manta: 0.8, whaleshark: 0.7, koi: 0.6, turtle: 0.55, jelly: 0.28, seal: 1.1 };
 
 /** Which sharks to put in the water; size is relative to the biggest. */
 export type SharkSpec = { kind: SharkKind; size: number };
@@ -561,7 +564,7 @@ export class World {
       sh.heading += turned;
       sh.turn += (turned / dt - sh.turn) * Math.min(1, dt * 3);
 
-      const cruise = 30 + L * 0.04;
+      const cruise = (30 + L * 0.04) * (PACE[sh.kind] ?? 1);
       const targetSpeed = hunting ? cruise * (1.45 + closing * 1.5) : cruise;
       sh.speed += (targetSpeed - sh.speed) * Math.min(1, dt * 1.1);
       sh.phase += dt * (2 + sh.speed / 24);
