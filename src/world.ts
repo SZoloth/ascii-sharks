@@ -18,7 +18,12 @@ import { pickSpecies, SPECIES } from "./species";
 
 export const SHARK_NODES = 20;
 
-export type SharkKind = "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse";
+export type SharkKind =
+  | "classic" | "hammerhead" | "zebra" | "tiger" | "greathammer" | "mako" | "thresher" | "nurse"
+  | "orca" | "manta" | "whaleshark";
+
+/** Filter feeders: they cruise through the schools and never hunt. */
+const GENTLE: ReadonlySet<SharkKind> = new Set<SharkKind>(["manta", "whaleshark"]);
 
 /** Which sharks to put in the water; size is relative to the biggest. */
 export type SharkSpec = { kind: SharkKind; size: number };
@@ -480,8 +485,9 @@ export class World {
       dy += Math.sin(sh.heading + sh.wander) * 0.45;
 
       // Hunt.
+      const gentle = GENTLE.has(sh.kind);
       if (time >= sh.retargetAt) {
-        sh.target = this.findPrey(sh);
+        sh.target = gentle ? null : this.findPrey(sh);
         sh.retargetAt = time + 0.45;
       }
       const t = sh.target;
@@ -579,7 +585,7 @@ export class World {
       }
 
       // Feed.
-      if (sh.hunger > 0.15) {
+      if (!gentle && sh.hunger > 0.15) {
         const mouthR = L * 0.05 + 8;
         const mx = nodes[0];
         const my = nodes[1];
