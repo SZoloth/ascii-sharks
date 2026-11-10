@@ -66,6 +66,9 @@ const FLAG_EYE = 5;
 /** Dark skin markings: tiger bars, zebra-shark spots. */
 const FLAG_MARK = 6;
 const MARK_GLYPHS = "#%@";
+/** Coloured skin patches: koi orange. */
+const FLAG_PATCH = 7;
+const PATCH_GLYPHS = "tS%X";
 
 // Sub-cell sample offsets for anti-aliased silhouettes.
 const SUBSAMPLES = [0.25, 0.3, 0.75, 0.3, 0.25, 0.72, 0.75, 0.72];
@@ -108,8 +111,32 @@ interface SharkShape {
   pale?: (s: number, across: number, v: number, id: number) => boolean;
   /** How far the pectorals beat, as a fraction of their reach. Sharks barely move theirs (0.06); a manta flies on them. */
   flap?: number;
+  /** Coloured or black patches on the hide: 0 none, 1 the patch colour, 2 black. Koi patterns, seal spots, turtle scutes. */
+  patch?: (s: number, across: number, v: number, id: number) => 0 | 1 | 2;
+  patchColor?: RGB;
+  /** A body that can't bend (a turtle's shell, a jellyfish bell): drawn straight along its heading. */
+  rigid?: boolean;
+  /** The body swells and shrinks as it swims, by this fraction. A jellyfish bell. */
+  pulse?: number;
+  /** Trailing tentacles: how many, and how far they spread at the tip, as a fraction of length. */
+  tentacles?: [number, number];
   /** Scales the side-to-side body wave. Rays glide and whales beat up and down, so from above they hardly wag. */
   wave?: number;
+}
+
+/** Smooth blobs that ride along with the skin: value noise over body coordinates. */
+function blob(s: number, v: number, id: number) {
+  const x0 = Math.floor(s);
+  const y0 = Math.floor(v);
+  const fx = s - x0;
+  const fy = v - y0;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash3(x0, y0, id);
+  const b = hash3(x0 + 1, y0, id);
+  const c = hash3(x0, y0 + 1, id);
+  const d = hash3(x0 + 1, y0 + 1, id);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
 }
 
 /** Pale spots on a jittered grid, so they ride along with the skin. */
@@ -343,6 +370,109 @@ const SHAPES: Record<SharkKind, SharkShape> = {
     pale: (s, across, v, id) => s > 0.03 && s < 0.9 && spots(s, v, id, 0.04, 0.032, 0.05),
     wave: 0.7,
   },
+  // Koi, seen from above as in a pond: a plump body, round pectorals and a soft fan of a tail.
+  // Each fish gets its own pattern: white with orange, white with orange and black, or solid gold.
+  koi: {
+    halfWidth: (s) => {
+      if (s < 0.12) return 0.085 * Math.pow(Math.sin(((s / 0.12) * Math.PI) / 2), 0.7);
+      if (s < 0.36) return 0.085 + 0.02 * smoothstep(0.12, 0.36, s);
+      if (s < 0.84) return 0.024 + 0.081 * Math.pow(1 - (s - 0.36) / 0.48, 1.1);
+      const k = (s - 0.84) / 0.16;
+      return 0.024 * (1 - k) + 0.02 * Math.sin(k * Math.PI);
+    },
+    pectoral: [0.2, 0.3, 0.36, 0.13],
+    falcate: false,
+    pelvic: [0.52, 0.58, 0.63, 0.07],
+    caudal: 0.13,
+    dorsal: [0, 0],
+    secondDorsal: [0, 0],
+    eye: [0.07, 0.1],
+    gills: [0, 0],
+    tint: [1.04, 1.0, 0.94],
+    pale: () => true,
+    patch: (s, across, v, id) => {
+      const variety = id % 3;
+      if (variety === 2) return 1;
+      const orange = blob(s * 5.5 + id * 3.1, v * 9, id) > (variety === 0 ? 0.48 : 0.58);
+      if (variety === 1 && blob(s * 10 + 7, v * 16, id + 5) > 0.7) return 2;
+      return orange ? 1 : 0;
+    },
+    patchColor: [240, 104, 38],
+    wave: 1.15,
+  },
+  // Sea turtle: a small head on a short neck, an oval shell marked into scutes, long front
+  // flippers that row and short rear ones that steer. The shell never bends.
+  turtle: {
+    halfWidth: (s) => {
+      if (s < 0.1) return 0.05 * Math.pow(Math.sin(((s / 0.1) * Math.PI) / 2), 0.7);
+      if (s < 0.17) return 0.05 - 0.012 * smoothstep(0.1, 0.17, s);
+      if (s < 0.84) return Math.max(0.038, 0.2 * Math.sqrt(Math.max(0, 1 - ((s - 0.5) / 0.35) ** 2)));
+      return 0.03 * (1 - (s - 0.84) / 0.16);
+    },
+    pectoral: [0.17, 0.4, 0.56, 0.52],
+    falcate: true,
+    pelvic: [0.7, 0.82, 0.93, 0.27],
+    caudal: 0,
+    dorsal: [0, 0],
+    secondDorsal: [0, 0],
+    eye: [0.04, 0.07],
+    gills: [0, 0],
+    tint: [0.86, 1.04, 0.84],
+    dark: 0.8,
+    patch: (s, across) => {
+      if (s < 0.19 || s > 0.82) return 0;
+      // Scute seams: a spine line, two side lines and cross seams, with a pale rim left clear.
+      if (across > 0.86) return 0;
+      const cross = Math.abs((((s - 0.19) / 0.63) * 5) % 1 - 0.5) > 0.42;
+      return cross || Math.abs(across - 0.5) < 0.06 ? 2 : 0;
+    },
+    rigid: true,
+    flap: 0.26,
+    wave: 0,
+  },
+  // Seal: a round head, a thick neck, a body that tapers to a pair of rear flippers held
+  // together, and short front flippers. Grey and spotted.
+  seal: {
+    halfWidth: (s) => {
+      if (s < 0.09) return 0.062 * Math.pow(Math.sin(((s / 0.09) * Math.PI) / 2), 0.6);
+      if (s < 0.16) return 0.062 - 0.006 * smoothstep(0.09, 0.16, s);
+      if (s < 0.42) return 0.056 + 0.05 * smoothstep(0.16, 0.42, s);
+      if (s < 0.88) return 0.03 + 0.076 * Math.pow(1 - (s - 0.42) / 0.46, 1.2);
+      const k = (s - 0.88) / 0.12;
+      return 0.03 * (1 - k) + 0.014 * Math.sin(k * Math.PI);
+    },
+    pectoral: [0.27, 0.36, 0.43, 0.13],
+    falcate: false,
+    pelvic: [0, 0, 0, 0],
+    caudal: 0.085,
+    dorsal: [0, 0],
+    secondDorsal: [0, 0],
+    eye: [0.045, 0.07],
+    gills: [0, 0],
+    tint: [1.0, 0.98, 0.93],
+    dark: 0.86,
+    patch: (s, across, v, id) => (s > 0.12 && s < 0.86 && spots(s, v, id, 0.045, 0.036, 0.05) ? 2 : 0),
+    wave: 0.75,
+  },
+  // Jellyfish: a round bell that pulses, with a bright rim and a handful of trailing tentacles.
+  jelly: {
+    halfWidth: (s) => (s < 0.34 ? 0.17 * Math.sqrt(Math.max(0, 1 - ((s - 0.17) / 0.17) ** 2)) : 0),
+    pectoral: [0, 0, 0, 0],
+    falcate: false,
+    pelvic: [0, 0, 0, 0],
+    caudal: 0,
+    dorsal: [0, 0],
+    secondDorsal: [0, 0],
+    eye: null,
+    gills: [0, 0],
+    tint: [1.06, 0.92, 1.2],
+    dark: 0.6,
+    pale: (s, across) => across > 0.78 || (across < 0.5 && across > 0.3),
+    rigid: true,
+    pulse: 0.14,
+    tentacles: [6, 0.1],
+    wave: 0,
+  },
 };
 
 const KINDS = Object.keys(SHAPES) as SharkKind[];
@@ -413,6 +543,7 @@ export class AsciiRenderer {
   private arcTotal = 1;
   private shape = SHAPES.classic;
   private sharkId = 0;
+  private phase = 0;
   private finTipLeft = 0;
   private finTipRight = 0;
   // Scratch outputs of sampleShark(), to avoid allocating per sample.
@@ -681,7 +812,7 @@ export class AsciiRenderer {
     const s = bestS;
     const u = s * L;
     const shape = this.shape;
-    const w = shape.halfWidth(s) * L;
+    const w = shape.halfWidth(s) * L * (shape.pulse ? 1 + shape.pulse * Math.sin(this.phase * 1.3) : 1);
     this.hitDist = a;
     this.hitS = s;
     this.hitV = a * bestSign;
@@ -709,7 +840,13 @@ export class AsciiRenderer {
       let shade = 0.58 - across * across * 0.42 + facing * 0.26;
       if (shape.dark) shade *= shape.dark;
       let flag = FLAG_BODY;
-      if (s > shape.dorsal[0] && s < shape.dorsal[1] && across < 0.3) {
+      const patch = shape.patch ? shape.patch(s, across, (a * bestSign) / L, this.sharkId) : 0;
+      if (shape.pale && patch === 0 && shape.pale(s, across, (a * bestSign) / L, this.sharkId)) shade = 0.74 + shade * 0.3;
+      if (patch === 1) {
+        flag = FLAG_PATCH;
+      } else if (patch === 2) {
+        flag = FLAG_MARK;
+      } else if (s > shape.dorsal[0] && s < shape.dorsal[1] && across < 0.3) {
         // First dorsal fin, catching the light. On a black hide it stays dark and only reads as a ridge.
         if (shape.dark && shape.dark < 0.5) shade = 0.3;
         else {
@@ -724,8 +861,8 @@ export class AsciiRenderer {
       } else if (s > shape.gills[0] && s < shape.gills[1] && across > 0.58) {
         // Five gill slits.
         if (Math.floor(((s - shape.gills[0]) / (shape.gills[1] - shape.gills[0])) * 5) % 2 === 0) shade *= 0.45;
-      } else if (shape.pale && shape.pale(s, across, (a * bestSign) / L, this.sharkId)) {
-        shade = 0.92;
+      } else if (shape.pale) {
+        // Already lifted above.
       } else if (s < 0.05 && !shape.dark) {
         // Pale snout tip.
         shade = Math.max(shade, 0.7);
@@ -740,9 +877,26 @@ export class AsciiRenderer {
       return true;
     }
 
+    if (shape.tentacles && s > 0.3 && s < 0.99) {
+      // Thin trailing strands that fan out and ripple behind the bell.
+      const [count, spread] = shape.tentacles;
+      const k = (s - 0.3) / 0.7;
+      for (let i = 0; i < count; i++) {
+        const lane = (i + 0.5) / count - 0.5;
+        const off = L * (lane * (0.18 + spread * 2 * k) + 0.012 * Math.sin(this.phase * 1.3 - s * 16 + i * 1.7) * (0.3 + k));
+        if (Math.abs(a * bestSign - off) < L * 0.0045 && k < 0.55 + 0.45 * hash3(i, 3, this.sharkId)) {
+          this.hitFlag = FLAG_FIN;
+          this.hitShade = 0.5 * (1 - k * 0.6);
+          return true;
+        }
+      }
+      return false;
+    }
+
     const tip = bestSign > 0 ? this.finTipRight : this.finTipLeft;
     const [p0, p1, p2] = shape.pectoral;
     if (
+      p2 > 0 &&
       inTriangle(u, a, L * p0, 0, L * p1, 0, L * p2, tip) &&
       // Falcate (sickle) fins get a concave trailing edge.
       !(shape.falcate && inTriangle(u, a, L * p1, 0, L * (p1 + (p2 - p1) * 0.33), tip * 0.55, L * p2, tip))
@@ -804,6 +958,7 @@ export class AsciiRenderer {
       const swim = clamp(sh.speed / 60, 0.4, 1.4);
       this.shape = SHAPES[sh.kind];
       this.sharkId = sh.id;
+      this.phase = sh.phase;
       const kindIndex = KINDS.indexOf(sh.kind);
 
       // Travelling body wave, growing toward the tail.
@@ -820,6 +975,20 @@ export class AsciiRenderer {
         const off = amp * Math.sin(sh.phase - s * 5.2);
         spine[k * 2] = n[k * 2] - ty * off;
         spine[k * 2 + 1] = n[k * 2 + 1] + tx * off;
+      }
+      if (this.shape.rigid) {
+        // Lay the body out straight along the line from the head through the shoulders.
+        const q = Math.min(N - 1, 10);
+        let dx = n[q * 2] - n[0];
+        let dy = n[q * 2 + 1] - n[1];
+        const dl = Math.hypot(dx, dy) || 1;
+        dx /= dl;
+        dy /= dl;
+        const seg = L / (N - 1);
+        for (let k = 0; k < N; k++) {
+          spine[k * 2] = n[0] + dx * seg * k;
+          spine[k * 2 + 1] = n[1] + dy * seg * k;
+        }
       }
       arc[0] = 0;
       for (let k = 1; k < N; k++) {
@@ -949,6 +1118,17 @@ export class AsciiRenderer {
         glyph = SKIN_RAMP[clamp(Math.floor((1 - shade) * 8.99) + jitter, 0, SKIN_RAMP.length - 1)];
       }
       level *= dim;
+      if (flag === FLAG_PATCH) {
+        const pc = SHAPES[KINDS[sharkKind[i]]].patchColor ?? [240, 104, 38];
+        const k = (0.62 + 0.38 * shade) * dim;
+        const { paper } = this.theme;
+        const mix = (i2: number) => Math.round(paper ? paper[i2] + (pc[i2] - paper[i2]) * (0.55 + 0.45 * shade) : pc[i2] * k);
+        ctx.fillStyle = `rgb(${mix(0)},${mix(1)},${mix(2)})`;
+        ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
+        ctx.fillStyle = `rgb(${Math.round(pc[0] * 0.55)},${Math.round(pc[1] * 0.45)},${Math.round(pc[2] * 0.4)})`;
+        ctx.fillText(PATCH_GLYPHS[(key >>> 8) % PATCH_GLYPHS.length], x + cw / 2, y + ch / 2 + 1);
+        continue;
+      }
       // Tinted per species; the classic tint is a cool blue-grey, like a back seen through deep water.
       ctx.fillStyle = this.tone(level, tr, tg, tb);
       ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
